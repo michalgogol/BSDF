@@ -22,20 +22,20 @@ class mainOfMT(tk.Tk):
     def showImg(self,path,canvas):
         load = Image.open(path)
         width, height = load.size
-        test = np.ceil(height/600) + 1
-        width = width / test
-        height = height / test
+        scale = np.ceil(height/600) + 1
+        width = width / scale
+        height = height / scale
         load = load.resize((int(width), int(height)), Image.ANTIALIAS)
         render = ImageTk.PhotoImage(load)
 
         img= tk.Label(self, image=render)
         img.image = render
-        x_cor = np.ceil((800-width)/2)
-        y_cor = np.ceil((600-height)/2)
         canvas.delete("all")
-        canvas.create_image(canvas.winfo_width()/2,canvas.winfo_height()/2,anchor="center",image= render)
-
-
+        #print(render.width(),render.height())
+        #canvas.config(width=render.width(),height=render.height())
+        temp = canvas.create_image(canvas.winfo_width()/2,canvas.winfo_height()/2,anchor="center",image= render)
+        print(canvas.coords(temp))
+        img_prc.getCanvasDetails(canvas.winfo_width(),canvas.winfo_height(),render.width(),render.height(),scale)
 
     def __init__(self, *args, **kwargs):
         tk.Tk.__init__(self, *args, **kwargs)
@@ -69,6 +69,7 @@ class mainOfMT(tk.Tk):
 
 
     def show_plot(self):
+        img_prc.fill_calculate_area(self.rectangle_coordinates)
         img_prc.plot_show()
 
     def excel(self,light_pos,cam_pos):
@@ -141,6 +142,12 @@ class mainOfMT(tk.Tk):
     def enable_select(self,select_button):
         select_button.configure(state="normal")
 
+    def set_rec_coordinates(self, rect_co):
+        self.rectangle_coordinates =  rect_co
+
+    def get_tare(self):
+        img_prc.fil_tare_area(self.rectangle_coordinates)
+        img_prc.get_tare()
 
 
 class SecondPage(tk.Frame):
@@ -150,33 +157,42 @@ class SecondPage(tk.Frame):
         tk.Frame.__init__(self, parent)
         menuBar = tk.Menu(parent)
         filemenu = tk.Menu(menuBar, tearoff=0)
-        filemenu.add_command(label="Import file", command=lambda: controller.import_dir(canvas))
+        filemenu.add_command(label="Import file", command=lambda: controller.import_dir(self.canvas))
         filemenu.add_command(label="Save file", command=lambda: controller.save_picture(int(cam_pos_entry.get()), int(light_pos_entry.get())))
+        filemenu.add_separator()
+        filemenu.add_command(label="Show plot",command=lambda: self.controller.show_plot())
+        filemenu.add_command(label="Export to excel", command=lambda: controller.excel(int(cam_pos_entry.get()), int(light_pos_entry.get())))
+        filemenu.add_command(label="Get tare", command=lambda: self.controller.get_tare())
+        filemenu.add_separator()
+        filemenu.add_command(label="Select area with pattern", command=lambda: self.calcuateRec())
+        filemenu.add_command(label="Select calculate area", command=lambda: self.controller.show_plot())
         filemenu.add_separator()
         filemenu.add_command(label="Exit", command=quit)
         menuBar.add_cascade(label="File", menu=filemenu)
 
+        self.defineCanvas()
+        self.defineEntries()
+
         tk.Tk.config(controller, menu=menuBar)
-
-        button1 = tk.Button(self, text="Show plot", command=lambda: controller.show_plot())
-        button1.grid(row=0, column=0)
-
-        button2 = tk.Button(self, text="Export to excel",
-                            command=lambda: controller.excel(int(cam_pos_entry.get()), int(light_pos_entry.get())))
-        button2.grid(row=1, column=0)
-
-        canvas = tk.Canvas(self, bg="whitesmoke", height=630, width=750)
-        canvas.grid(row=0, column=1, columnspan=5, rowspan=10, sticky="wens", padx=(15, 5), pady=10)
-        controller.set_canvas(canvas)
-
         list_frame = tk.Frame(self)
-        list_frame.grid(row=0, columnspan =2, column=6,pady=10)
+        list_frame.grid(row=0, columnspan =2, column=3,pady=10)
 
         photos_list = tk.Listbox(list_frame,width=20, height=35)
         photos_list.grid()
         photos_list.bind('<Double-Button-1>',lambda x: controller.change_img(photos_list.get("anchor")))
         self.photos_list = photos_list
 
+
+
+    def defineCanvas(self):
+        self.canvas = tk.Canvas(self, bg="whitesmoke", height=630, width=750)
+        self.canvas.grid(row=0, column=1, columnspan=2, rowspan=2, sticky="wens", padx=(15, 5), pady=10)
+        self.controller.set_canvas(self.canvas)
+        self.move = False
+        self.calculateRect = False
+        self.createMouseBinding()
+
+    def defineEntries(self):
         cam_pos_entry = tk.Entry(self)
         cam_pos_entry.grid(row=10, column=2)
         cam_pos_label = tk.Label(self, text="Camera distance")
@@ -186,6 +202,41 @@ class SecondPage(tk.Frame):
         light_pos_label = tk.Label(self, text="Light distance")
         light_pos_label.grid(row=11, column=3)
 
+    def createMouseBinding(self):
+        self.canvas.bind("<Button-1>",self.startCreateCropp)
+        self.canvas.bind("<ButtonRelease-1>", self.endCreateCropp)
+        self.canvas.bind("<Motion>",self.moveCropp)
+
+    def startCreateCropp(self,event):
+        if self.calculateRect == True:
+            self.move = True
+            self.rectX =self.canvas.canvasx(event.x)#get location on canvas
+            self.rectY = self.canvas.canvasy(event.y)
+
+            self.rectangle = self.canvas.create_rectangle(self.rectX,self.rectY,self.rectX,self.rectY)
+            self.rectangleId = self.canvas.find_closest(self.rectX,self.rectY,halo=2)
+
+    def endCreateCropp(self,event):
+        if self.calculateRect == True:
+            self.move = False
+            self.rectY1 = self.canvas.canvasy(event.y)
+            self.rectX1 = self.canvas.canvasx(event.x)
+            self.canvas.coords(self.rectangleId, self.rectX, self.rectY, self.rectX1, self.rectY1)
+            coordinates = [self.rectX, self.rectY, self.rectX1, self.rectY1]
+            self.controller.set_rec_coordinates(coordinates)
+
+
+    def moveCropp(self,event):
+        if self.move:
+            self.rectY1 = self.canvas.canvasy(event.y)
+            self.rectX1 = self.canvas.canvasx(event.x)
+            self.canvas.coords(self.rectangleId,self.rectX,self.rectY,self.rectX1,self.rectY1)
+
+    def deleteRectangle(self):
+        self.canvas.delete(self.rectangle)
+
+    def calcuateRec(self):
+         self.calculateRect = True
 
 
     def update_listbox(self):
@@ -193,6 +244,8 @@ class SecondPage(tk.Frame):
         saved =  self.controller.get_saved_img()
         for idx, P in enumerate(saved):
                 self.photos_list.insert(idx, P.img_name)
+
+
 
 
 class StartPage(tk.Frame):
@@ -225,6 +278,7 @@ class StartPage(tk.Frame):
         self.dataset_list.delete(0,"end")
         for idx,P in enumerate(controller.get_datasets()):
             self.dataset_list.insert(idx,P)
+
 
 
 
