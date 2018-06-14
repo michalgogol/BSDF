@@ -7,6 +7,7 @@ from itertools import product, chain
 import time
 import matplotlib.pyplot as plt
 import xlwt
+import math
 
 
 class ImageProces:
@@ -59,7 +60,31 @@ class ImageProces:
         self.data = self.img.load()
         self.rgb_img = self.img.convert('RGB')
 
+    def set_new_calc_area(self):
+        lumi_array_vert = []
+        width =  abs(self.calaculate_area[1]-self.calaculate_area[0])
+        for y in range(self.calaculate_area[2], self.calaculate_area[3]):
+            r_sum = g_sum = b_sum = 0
+            for x in range(self.calaculate_area[0], self.calaculate_area[1]):
+                [r, g, b] = self.data[x, y]
+                r_sum += r
+                g_sum += g
+                b_sum += b
+            r_sum = r_sum / width
+            g_sum = g_sum / width
+            b_sum = b_sum / width
+            luminance = 0.2126 * r_sum + 0.7152 * g_sum + 0.0722 * b_sum
+            lumi_array_vert.append(luminance)
+
+        max_lum_vert = max((lumi_array_vert))
+        max_line = self.calaculate_area[2] + lumi_array_vert.index(max_lum_vert)
+
+        self.calaculate_area[2] = int(max_line - ((100*self.tare)/self.real_tare)/2)
+        self.calaculate_area[3] = int(max_line + ((100 * self.tare) / self.real_tare)/2)
+
+
     def calaculate(self):
+        self.set_new_calc_area()
         x_axis, y_axis = self.rgb_img.size
         t0 = time.time()
         midle = y_axis/2
@@ -92,14 +117,13 @@ class ImageProces:
                 b_sum = b_sum/h
                 luminance = 0.2126 * r_sum + 0.7152 * g_sum + 0.0722 * b_sum
                 self.lumi_array.append(luminance)
-    #    x_new = np.arange(x_axis-1)
-     #   y_new = np.array(self.lumi_array)
-      #  self.lumi_array = np.polyfit(x_new,y_new,45)
+
 
         t1 = time.time()
         print(t1-t0)
 
-    def get_tare(self):
+    def get_tare(self,real_tare):
+        self.real_tare = real_tare
         x_axis, y_axis = self.rgb_img.size
         t0 = time.time()
         midle = y_axis / 2
@@ -129,69 +153,144 @@ class ImageProces:
                 else:
                     luminance_old = luminance_new
         self.tare = tare_end - tare_begin
+        self.middle_point = int(tare_begin + self.tare/2)
         print(self.tare)
 
 
-
-
     def plot_show(self):
-        self.calaculate()
         plt.plot(self.lumi_array)
         plt.show()
 
-    def angle_dependency(self,light_dist,camera_dist,angle,object_length,directory):
+
+    def angle_dependency(self,light_dist,camera_dist_norm,camera_dist_plain,angle,real_tare):
         max_lum = max((self.lumi_array))
         max_point = self.lumi_array.index(max_lum)
-        real_factor = object_length/len(self.lumi_array)
 
-        book = xlwt.Workbook(encoding="utf-8")
-        sheet1 = book.add_sheet("Sheet 1")
+        self.book = xlwt.Workbook(encoding="utf-8")
+        sheet1 = self.book.add_sheet("Sheet 1")
 
-        bottom_alfa1 = 0
-        bottom_alfa2 = max_point*real_factor
+        self.alfa1_tab = []
+        self.alfa2_tab = []
+        self.f_a1_a2_tab = []
         row = 0
         sheet1.write(row, 0, "alfa1")
         sheet1.write(row, 1, "alfa2")
         sheet1.write(row, 2,"f(a1,a2)")
-        for x in range(max_point,0,-25):
-            row += 1
-            if(x==max_point):
-                alfa1 = 90
-                alfa2 = 90 - angle
-                sheet1.write(row,0,alfa1)
-                sheet1.write(row,1,alfa2)
-                sheet1.write(row,2,max((self.lumi_array)))
-                continue
+       # current_point = self.middle_point - self.calaculate_area[2]
+        current_lumin = self.lumi_array[max_point]
+        current_point = max_point
+        alfa1 = 90
+        alfa2 = 90 - angle
+        alfa_t = 0
+        alfa2_base = (np.sqrt(camera_dist_plain ** 2 - camera_dist_norm ** 2))  # przyprostokątna
+        alfa2_base_digit = alfa2_base * (self.tare/real_tare)
+        row = 1
+        sheet1.write(row, 0, 90- alfa1)
+        sheet1.write(row, 1, alfa2)
+        sheet1.write(row, 2, current_lumin)
+        alfa2_old = 0
+        alfa2_flag = 0
+        while True:
 
-            bottom_alfa1 += 50*real_factor
-            hypotenuse = np.sqrt(light_dist**2+(bottom_alfa1**2))
-            area = light_dist*bottom_alfa1/2
-            sin_alfa1 = (2*area)/(bottom_alfa1*hypotenuse)
-            alfa1 = np.arcsin(sin_alfa1)*57.2958
+            row+=1
+            alfa1 = alfa1-0.5
+            alfa_t = alfa_t+0.5
+            real_shift =(np.sin(np.deg2rad(alfa_t))*light_dist)/np.sin(np.deg2rad(alfa1))
+            digit_shift = real_shift*(self.tare/real_tare)
+            current_point= int(current_point+digit_shift)
 
-            bottom_alfa2 -= 50*real_factor
-            hypotenuse = np.sqrt(camera_dist**2+(bottom_alfa2**2))
-            area = camera_dist*bottom_alfa2/2
-            sin_alfa2 = (2*area)/(bottom_alfa2*hypotenuse)
-            alfa2 = np.arcsin(sin_alfa2)*57.2958
+            try:
+                current_lumin=self.lumi_array[current_point]
+            except IndexError:
+                break
 
-            sheet1.write(row, 0, alfa1)
-            sheet1.write(row, 1, alfa2)
-            sheet1.write(row, 2, self.lumi_array[x])
+            alfa2_base-=real_shift
+            hypotenuse = np.sqrt(alfa2_base**2+camera_dist_norm**2)
+            alfa2 = math.degrees(math.asin((np.sin(np.deg2rad(90))*camera_dist_norm)/hypotenuse))
 
 
-        book.save(directory)
+            if alfa2_old > alfa2:
+                alfa2_flag = 1
+            alfa2_old = alfa2
+
+            if alfa2_flag == 1:
+                alfa2_var = alfa2-90
+            else:
+                alfa2_var = 90-alfa2
+
+
+            self.alfa1_tab.append(90-alfa1)
+            self.alfa2_tab.append(alfa2_var)
+            self.f_a1_a2_tab.append(current_lumin)
+
+            sheet1.write(row, 0, 90 -alfa1)
+            sheet1.write(row, 1, alfa2_var)
+            sheet1.write(row, 2, current_lumin)
+
+        alfa1=90
+        alfa_t = 0
+        #current_point = self.middle_point - self.calaculate_area[2]
+        current_point = max_point
+        alfa2_base = (np.sqrt(camera_dist_plain ** 2 - camera_dist_norm ** 2))
+        alfa2_flag = 0
+        alfa2_old = 90
+        while True:
+
+            row+=1
+            alfa1 = alfa1-0.5
+            alfa_t = alfa_t+0.5
+            real_shift =(np.sin(np.deg2rad(alfa_t))*light_dist)/np.sin(np.deg2rad(alfa1))
+            digit_shift = real_shift*(self.tare/real_tare)
+            if current_point-digit_shift < 0:
+                break
+            current_point= int(current_point-digit_shift)
+
+            try:
+                current_lumin=self.lumi_array[current_point]
+            except IndexError:
+                break
+
+            alfa2_base+=real_shift
+            hypotenuse = np.sqrt(alfa2_base**2+camera_dist_norm**2)
+            alfa2 = math.degrees(math.asin((np.sin(np.deg2rad(90))*camera_dist_norm)/hypotenuse))
+
+            if alfa2_old < alfa2:
+                alfa2_flag = 1
+            alfa2_old = alfa2
+
+            if alfa2_flag == 1:
+                alfa2_var = alfa2 - 90
+            else:
+                alfa2_var = 90 - alfa2
+
+            self.alfa1_tab.append(alfa1-90)
+            self.alfa2_tab.append(alfa2_var)
+            self.f_a1_a2_tab.append(current_lumin)
+
+            sheet1.write(row, 0, alfa1-90)
+            sheet1.write(row, 1, alfa2_var)
+            sheet1.write(row, 2, current_lumin)
+
+    def save_to_excel(self,directory):
+        self.book.save(directory)
 
 class proceededImg:
 
     img_name = ""
     proceededLumi_array = []
-    camera_dist = ""
+    calaculate_area = []
+    camera_dist_norm = ""
+    camera_dist_plain = ""
     light_dist = ""
     angle = ""
+    tare = ""
+    real_tare = ""
     object_length = ""
     directory = ""
-
+    alfa1_tab = []
+    alfa2_tab = []
+    f_a1_a2_tab = []
+    book = None
 
 
 
